@@ -1,5 +1,4 @@
 #!/bin/bash
-# /usr/local/bin/backup_glpi.sh
 
 BACKUP_DIR="/backup"
 GLPI_DB_NAME="glpi"
@@ -12,20 +11,18 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
 }
 
-# Получить timestamp из имени файла (glpi_YYYYMMDD_HHMMSS.sql.gz)
 get_file_timestamp() {
     local filename=$(basename "$1")
     if [[ $filename =~ glpi_([0-9]{8})_([0-9]{6})\.sql\.gz ]]; then
-        local date_part="${BASH_REMATCH[1]}"   # YYYYMMDD
-        local time_part="${BASH_REMATCH[2]}"   # HHMMSS
-        # Преобразуем в секунды с эпохи
+        local date_part="${BASH_REMATCH[1]}"
+        local time_part="${BASH_REMATCH[2]}" 
+
         date -d "${date_part:0:4}-${date_part:4:2}-${date_part:6:2} ${time_part:0:2}:${time_part:2:2}:${time_part:4:2}" +%s 2>/dev/null
     else
         echo "0"
     fi
 }
 
-# Создание бэкапа
 do_backup() {
     local timestamp=$(date +%Y%m%d_%H%M%S)
     local backup_file="${BACKUP_DIR}/glpi_${timestamp}.sql.gz"
@@ -34,7 +31,6 @@ do_backup() {
 
     if mysqldump -u "$GLPI_DB_USER" -p"$GLPI_DB_PASS" "$GLPI_DB_NAME" | gzip > "$backup_file"; then
         log "Бэкап успешно создан: $backup_file"
-        # Удаляем старые бэкапы, оставляя MAX_BACKUPS последних (по дате в имени)
         ls -1 "${BACKUP_DIR}"/glpi_*.sql.gz 2>/dev/null | sort | head -n -${MAX_BACKUPS} | xargs -r rm -f
         log "Старые бэкапы очищены (оставлено не более $MAX_BACKUPS)"
     else
@@ -43,7 +39,6 @@ do_backup() {
     fi
 }
 
-# Проверка при загрузке (по дате в имени)
 check_and_backup() {
     local now=$(date +%s)
     local two_days_ago=$((now - 2*86400))
