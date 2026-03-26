@@ -4,13 +4,25 @@
 BACKUP_DIR="/backup"
 GLPI_DB_NAME="glpi"
 GLPI_DB_USER="glpi"
-GLPI_DB_PASS='glpiDB$ecret'          # Замените на реальный пароль
+GLPI_DB_PASS='glpiDB$ecret'
 MAX_BACKUPS=3
 LOG_FILE="/var/log/backup_glpi.log"
 
-# Логирование
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+}
+
+# Получить timestamp из имени файла (glpi_YYYYMMDD_HHMMSS.sql.gz)
+get_file_timestamp() {
+    local filename=$(basename "$1")
+    if [[ $filename =~ glpi_([0-9]{8})_([0-9]{6})\.sql\.gz ]]; then
+        local date_part="${BASH_REMATCH[1]}"   # YYYYMMDD
+        local time_part="${BASH_REMATCH[2]}"   # HHMMSS
+        # Преобразуем в секунды с эпохи
+        date -d "${date_part:0:4}-${date_part:4:2}-${date_part:6:2} ${time_part:0:2}:${time_part:2:2}:${time_part:4:2}" +%s 2>/dev/null
+    else
+        echo "0"
+    fi
 }
 
 # Создание бэкапа
@@ -22,8 +34,8 @@ do_backup() {
 
     if mysqldump -u "$GLPI_DB_USER" -p"$GLPI_DB_PASS" "$GLPI_DB_NAME" | gzip > "$backup_file"; then
         log "Бэкап успешно создан: $backup_file"
-        # Удаляем старые бэкапы, оставляя MAX_BACKUPS последних
-        ls -1t "${BACKUP_DIR}"/glpi_*.sql.gz 2>/dev/null | tail -n +$((MAX_BACKUPS+1)) | xargs -r rm -f
+        # Удаляем старые бэкапы, оставляя MAX_BACKUPS последних (по дате в имени)
+        ls -1 "${BACKUP_DIR}"/glpi_*.sql.gz 2>/dev/null | sort | head -n -${MAX_BACKUPS} | xargs -r rm -f
         log "Старые бэкапы очищены (оставлено не более $MAX_BACKUPS)"
     else
         log "ОШИБКА: не удалось создать бэкап"
@@ -31,12 +43,26 @@ do_backup() {
     fi
 }
 
-# Проверка при загрузке
+# Проверка при загрузке (по дате в имени)
 check_and_backup() {
-    # Ищем самый свежий бэкап, созданный не более 2 дней назад
-    recent_backup=$(find "$BACKUP_DIR" -maxdepth 1 -name "glpi_*.sql.gz" -mtime -2 | sort | tail -n1)
-    if [ -n "$recent_backup" ]; then
-        log "При загрузке: найден свежий бэкап ($recent_backup) младше 2 дней, пропускаем."
+    local now=$(date +%s)
+    local two_days_ago=$((now - 2*86400))
+    local recent_found=0
+    local latest_file=""
+
+    # Ищем все файлы бэкапов
+    for f in "${BACKUP_DIR}"/glpi_*.sql.gz; do
+        [ -e "$f" ] || continue
+        local f_ts=$(get_file_timestamp "$f")
+        if [ "$f_ts" -gt "$two_days_ago" ]; then
+            recent_found=1
+            latest_file="$f"
+            break
+        fi
+    done
+
+    if [ $recent_found -eq 1 ]; then
+        log "При загрузке: найден свежий бэкап ($latest_file) младше 2 дней, пропускаем."
         exit 0
     else
         log "При загрузке: свежий бэкап не найден, создаём новый."
@@ -44,7 +70,6 @@ check_and_backup() {
     fi
 }
 
-# Основная логика
 case "$1" in
     boot)
         check_and_backup
