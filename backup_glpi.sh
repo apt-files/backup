@@ -1,15 +1,14 @@
 #!/bin/bash
-# /usr/local/bin/backup_services.sh
+# /usr/local/bin/backup_glpi.sh
 
 BACKUP_DIR="/backup"
 GLPI_DB_NAME="glpi"
 GLPI_DB_USER="glpi"
-GLPI_DB_PASS="your_password"          # Замените на реальный пароль или используйте файл .my.cnf
-WG_CONFIG_DIR="/opt/wg-dashboard"     # Путь к конфигурации WG Dashboard (хостовые файлы)
+GLPI_DB_PASS='glpiDB$ecret'          # Замените на реальный пароль
 MAX_BACKUPS=3
-LOG_FILE="/var/log/backup.log"
+LOG_FILE="/var/log/backup_glpi.log"
 
-# Функция логирования
+# Логирование
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
 }
@@ -17,48 +16,25 @@ log() {
 # Создание бэкапа
 do_backup() {
     local timestamp=$(date +%Y%m%d_%H%M%S)
-    local backup_name="glpi_${timestamp}"
-    local temp_dir=$(mktemp -d)
+    local backup_file="${BACKUP_DIR}/glpi_${timestamp}.sql.gz"
 
-    log "Начинаем создание бэкапа $backup_name"
+    log "Начинаем создание бэкапа GLPI"
 
-    # Дамп базы GLPI
-    if mysqldump -u "$GLPI_DB_USER" -p"$GLPI_DB_PASS" "$GLPI_DB_NAME" > "$temp_dir/glpi_db.sql"; then
-        log "Дамп базы данных GLPI создан"
-    else
-        log "ОШИБКА: не удалось создать дамп базы GLPI"
-        rm -rf "$temp_dir"
-        return 1
-    fi
-
-    # Копирование конфигурации WG Dashboard
-    if [ -d "$WG_CONFIG_DIR" ]; then
-        cp -r "$WG_CONFIG_DIR" "$temp_dir/wg-dashboard_config"
-        log "Конфигурация WG Dashboard скопирована"
-    else
-        log "ПРЕДУПРЕЖДЕНИЕ: директория конфигурации WG Dashboard не найдена"
-    fi
-
-    # Упаковка в tar.gz
-    tar -czf "${BACKUP_DIR}/${backup_name}.tar.gz" -C "$temp_dir" .
-    local result=$?
-    rm -rf "$temp_dir"
-
-    if [ $result -eq 0 ]; then
-        log "Бэкап успешно создан: ${BACKUP_DIR}/${backup_name}.tar.gz"
+    if mysqldump -u "$GLPI_DB_USER" -p"$GLPI_DB_PASS" "$GLPI_DB_NAME" | gzip > "$backup_file"; then
+        log "Бэкап успешно создан: $backup_file"
         # Удаляем старые бэкапы, оставляя MAX_BACKUPS последних
-        ls -1t "${BACKUP_DIR}"/glpi_*.tar.gz 2>/dev/null | tail -n +$((MAX_BACKUPS+1)) | xargs -r rm -f
+        ls -1t "${BACKUP_DIR}"/glpi_*.sql.gz 2>/dev/null | tail -n +$((MAX_BACKUPS+1)) | xargs -r rm -f
         log "Старые бэкапы очищены (оставлено не более $MAX_BACKUPS)"
     else
-        log "ОШИБКА: не удалось создать архив"
+        log "ОШИБКА: не удалось создать бэкап"
         return 1
     fi
 }
 
-# Проверка необходимости бэкапа при загрузке
+# Проверка при загрузке
 check_and_backup() {
-    # Находим самый свежий бэкап, который не старше 2 дней
-    recent_backup=$(find "$BACKUP_DIR" -maxdepth 1 -name "glpi_*.tar.gz" -mtime -2 | sort | tail -n1)
+    # Ищем самый свежий бэкап, созданный не более 2 дней назад
+    recent_backup=$(find "$BACKUP_DIR" -maxdepth 1 -name "glpi_*.sql.gz" -mtime -2 | sort | tail -n1)
     if [ -n "$recent_backup" ]; then
         log "При загрузке: найден свежий бэкап ($recent_backup) младше 2 дней, пропускаем."
         exit 0
