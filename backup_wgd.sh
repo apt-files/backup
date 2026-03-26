@@ -1,5 +1,4 @@
 #!/bin/bash
-# Резервное копирование WG Dashboard (база данных)
 
 BACKUP_DIR="/backup/wgd"
 CONTAINER_NAME="wgdashboard"
@@ -19,7 +18,6 @@ do_backup() {
     local temp_dir="/tmp/${backup_name}"
     mkdir -p "$temp_dir"
 
-    # Копируем папку db из контейнера
     docker cp "${CONTAINER_NAME}:${DB_DIR_IN_CONTAINER}" "$temp_dir/db" 2>/dev/null
     if [ $? -ne 0 ]; then
         echo "Ошибка: не удалось скопировать папку db из контейнера" >&2
@@ -27,7 +25,6 @@ do_backup() {
         exit 1
     fi
 
-    # Архивируем
     tar -czf "${BACKUP_DIR}/${backup_name}.tar.gz" -C "$temp_dir" db
     rm -rf "$temp_dir"
 
